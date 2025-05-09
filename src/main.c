@@ -132,8 +132,10 @@ void init_parking_lots()
         parking_lots[i].id = i + 1;                 // ID do estacionamento
         parking_lots[i].status = 0;                 // Status do estacionamento (0 - livre)
         parking_lots[i].reservation_start_time = 0; // Hora de início da reserva
-        parking_lots[i].is_pcd = (i + 1 % PARKING_LOT_SIZE == 0);             // Se o estacionamento é PCD (Pessoa com Deficiência)
+        parking_lots[i].is_pcd = false;             // Se o estacionamento é PCD (Pessoa com Deficiência)
     }
+    parking_lots[4].is_pcd = true; // o estacionamento 3 é PCD
+
 }
 
 // Função de callback ao aceitar conexões TCP
