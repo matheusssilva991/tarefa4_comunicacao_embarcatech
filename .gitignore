@@ -609,3 +609,4 @@ MigrationBackup/
 build
 pico_sdk_import.cmake
 .vscode
+config/wifi_config.h
