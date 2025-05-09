@@ -6,6 +6,7 @@
 #include "hardware/pio.h"
 #include "hardware/timer.h"
 #include "hardware/clocks.h"
+#include "pico/bootrom.h" // Biblioteca para inicialização do bootrom
 
 #include "lwip/pbuf.h"  // Lightweight IP stack - manipulação de buffers de pacotes de rede
 #include "lwip/tcp.h"   // Lightweight IP stack - fornece funções e estruturas para trabalhar com o protocolo TCP
@@ -19,23 +20,42 @@
 #include "lib/ws2812b/ws2812b.h"
 #include "lib/buzzer/buzzer.h"
 #include "config/wifi_config.h"
+#include "public/html_data.h"
 
 #include "FreeRTOS.h"
 #include "FreeRTOSConfig.h"
 #include "task.h"
 
 #define CYW43_LED_PIN CYW43_WL_GPIO_LED_PIN // GPIO do CI CYW43
+#define PARKING_LOT_SIZE 4                  // Tamanho do estacionamento
 
-int init_cyw43_arch(); // Inicializa a arquitetura do cyw43
-int init_webserver(struct tcp_pcb *server); // Inicializa o servidor web
-void vWebServerTask(void *pvParameters); // Tarefa do servidor web
-static err_t tcp_server_accept(void *arg, struct tcp_pcb *newpcb, err_t err); // Função de callback ao aceitar conexões TCP
+typedef struct parking_lot
+{
+    uint8_t id;                             // ID do estacionamento
+    uint8_t status;                         // Status do estacionamento (0 - livre, 1 - ocupado, 2 - reservado)
+    absolute_time_t reservation_start_time; // Hora de início da reserva
+    bool is_pcd;                            // Se o estacionamento é PCD (Pessoa com Deficiência)
+} parking_lot_t;
+
+int init_cyw43_arch();                                                                    // Inicializa a arquitetura do cyw43
+int init_webserver(struct tcp_pcb **server);                                               // Inicializa o servidor web
+void init_parking_lots();                                                                 // Inicializa o estacionamento
+void vWebServerTask(void *pvParameters);                                                  // Tarefa do servidor web
+static err_t tcp_server_accept(void *arg, struct tcp_pcb *newpcb, err_t err);             // Função de callback ao aceitar conexões TCP
 static err_t tcp_server_recv(void *arg, struct tcp_pcb *tpcb, struct pbuf *p, err_t err); // Função de callback para processar requisições HTTP
-void user_request(char **request); // Tratamento do request do usuário
+void user_request(char **request);                                                        // Tratamento do request do usuário
+void gpio_irq_callback(uint gpio, uint32_t events);                                      // Função de callback para interrupções GPIO
+
+parking_lot_t parking_lots[PARKING_LOT_SIZE]; // Array de estruturas para armazenar o status do estacionamento
 
 int main()
 {
     stdio_init_all();
+    init_parking_lots(); // Inicializa o estacionamento
+
+    init_btn(BUTTON_B_PIN); // Inicializa os botões
+
+    gpio_set_irq_enabled_with_callback(BUTTON_B_PIN, GPIO_IRQ_EDGE_FALL, true, &gpio_irq_callback); // Configura interrupção no botão B
 
     xTaskCreate(vWebServerTask, "WebServerTask", configMINIMAL_STACK_SIZE,
                 NULL, tskIDLE_PRIORITY + 1, NULL);
@@ -80,39 +100,46 @@ int init_cyw43_arch()
 }
 
 // Inicializa o servidor web
-int init_webserver(struct tcp_pcb *server)
+int init_webserver(struct tcp_pcb **server)
 {
-    // Configura o servidor TCP - cria novos PCBs TCP. É o primeiro passo para estabelecer uma conexão TCP.
-
-    server = tcp_new();
-    // Verifica se o PCB TCP foi criado com sucesso. Se não, imprime uma mensagem de erro e retorna.
-
-    if (!server)
-    {
-        printf("Falha ao criar servidor TCP\n");
-        return -1;
-    }
-
-    // vincula um PCB (Protocol Control Block) TCP a um endereço IP e porta específicos.
-    if (tcp_bind(server, IP_ADDR_ANY, 80) != ERR_OK)
+    // vincula um PCB TCP a um endereço IP e porta específicos
+    if (tcp_bind(*server, IP_ADDR_ANY, 80) != ERR_OK)
     {
         printf("Falha ao associar servidor TCP à porta 80\n");
         return -1;
     }
 
-    // Coloca um PCB (Protocol Control Block) TCP em modo de escuta, permitindo que ele aceite conexões de entrada.
-    server = tcp_listen(server);
+    // Coloca o PCB TCP em modo de escuta
+    *server = tcp_listen(*server);  // Atualiza o ponteiro original
+    if (*server == NULL)
+    {
+        printf("Falha ao criar servidor de escuta\n");
+        return -1;
+    }
 
-    // Define uma função de callback para aceitar conexões TCP de entrada. É um passo importante na configuração de servidores TCP.
-    tcp_accept(server, tcp_server_accept);
+    // Define função de callback para aceitar conexões
+    tcp_accept(*server, tcp_server_accept);
     printf("Servidor ouvindo na porta 80\n");
 
     return 0;
 }
 
+// Inicializa o estacionamento
+void init_parking_lots()
+{
+    for (int i = 0; i < PARKING_LOT_SIZE; i++)
+    {
+        parking_lots[i].id = i + 1;                 // ID do estacionamento
+        parking_lots[i].status = 0;                 // Status do estacionamento (0 - livre)
+        parking_lots[i].reservation_start_time = 0; // Hora de início da reserva
+        parking_lots[i].is_pcd = (i + 1 % PARKING_LOT_SIZE == 0);             // Se o estacionamento é PCD (Pessoa com Deficiência)
+    }
+}
+
 // Função de callback ao aceitar conexões TCP
 static err_t tcp_server_accept(void *arg, struct tcp_pcb *newpcb, err_t err)
 {
+    printf("Conexão aceita\n");
     tcp_recv(newpcb, tcp_server_recv);
     return ERR_OK;
 }
@@ -167,40 +194,10 @@ static err_t tcp_server_recv(void *arg, struct tcp_pcb *tpcb, struct pbuf *p, er
     // Tratamento de request - Controle dos LEDs
     user_request(&request);
 
-    // Cria a resposta HTML
-    char html[1024];
+    //char html[1500];
+    //snprintf(html, sizeof(html), html_data, 33.0);
 
-    // Instruções html do webserver
-    snprintf(html, sizeof(html), // Formatar uma string e armazená-la em um buffer de caracteres
-             "HTTP/1.1 200 OK\r\n"
-             "Content-Type: text/html\r\n"
-             "\r\n"
-             "<!DOCTYPE html>\n"
-             "<html>\n"
-             "<head>\n"
-             "<title> Embarcatech - LED Control </title>\n"
-             "<style>\n"
-             "body { background-color: #b5e5fb; font-family: Arial, sans-serif; text-align: center; margin-top: 50px; }\n"
-             "h1 { font-size: 64px; margin-bottom: 30px; }\n"
-             "button { background-color: LightGray; font-size: 36px; margin: 10px; padding: 20px 40px; border-radius: 10px; }\n"
-             ".temperature { font-size: 48px; margin-top: 30px; color: #333; }\n"
-             "</style>\n"
-             "</head>\n"
-             "<body>\n"
-             "<h1>Embarcatech: LED Control</h1>\n"
-             "<form action=\"./blue_on\"><button>Ligar Azul</button></form>\n"
-             "<form action=\"./blue_off\"><button>Desligar Azul</button></form>\n"
-             "<form action=\"./green_on\"><button>Ligar Verde</button></form>\n"
-             "<form action=\"./green_off\"><button>Desligar Verde</button></form>\n"
-             "<form action=\"./red_on\"><button>Ligar Vermelho</button></form>\n"
-             "<form action=\"./red_off\"><button>Desligar Vermelho</button></form>\n"
-             "<p class=\"temperature\">Temperatura Interna: %.2f &deg;C</p>\n"
-             "</body>\n"
-             "</html>\n",
-             30.0); // Temperatura interna - valor fictício
-
-    // Escreve dados para envio (mas não os envia imediatamente).
-    tcp_write(tpcb, html, strlen(html), TCP_WRITE_FLAG_COPY);
+    tcp_write(tpcb, html_data, strlen(html_data), TCP_WRITE_FLAG_COPY);
 
     // Envia a mensagem
     tcp_output(tpcb);
@@ -225,7 +222,8 @@ void vWebServerTask(void *pvParameters)
         vTaskDelete(NULL);
     }
 
-    if (init_webserver(server) != 0)
+    server = tcp_new(); // Cria um novo PCB TCP
+    if (!server || init_webserver(&server) != 0)
     {
         printf("Falha ao inicializar servidor web\n");
         vTaskDelete(NULL);
@@ -236,4 +234,10 @@ void vWebServerTask(void *pvParameters)
         cyw43_arch_poll(); // Necessário para manter o Wi-Fi ativo
         vTaskDelay(pdMS_TO_TICKS(100)); // Reduz a carga da CPU
     }
+}
+
+// Função de callback para interrupções GPIO
+void gpio_irq_callback(uint gpio, uint32_t events)
+{
+    reset_usb_boot(0, 0); // Reinicia o dispositivo e entra no modo de bootloader
 }
