@@ -33,7 +33,14 @@ pico_sdk_init()
 
 # Add executable. Default name is the project name, version 0.1
 
-add_executable(${PROJECT_NAME} src/main.c )
+add_executable(${PROJECT_NAME} src/main.c
+        lib/button/button.c # Button library
+        lib/led/led.c # LED library
+        lib/ssd1306/ssd1306.c # SSD1306 library
+        lib/ssd1306/display.c # Display library
+        lib/ws2812b/ws2812b.c # WS2812B library
+        lib/buzzer/buzzer.c # Buzzer library)
+)
 
 pico_set_program_name(${PROJECT_NAME} "tarefa4_comunicacao_embarcatech")
 pico_set_program_version(tarefa4_comunicacao_embarcatech "0.1")
