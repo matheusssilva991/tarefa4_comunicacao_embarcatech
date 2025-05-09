@@ -38,13 +38,13 @@ typedef struct parking_lot
 } parking_lot_t;
 
 int init_cyw43_arch();                                                                    // Inicializa a arquitetura do cyw43
-int init_webserver(struct tcp_pcb **server);                                               // Inicializa o servidor web
+int init_webserver(struct tcp_pcb **server);                                              // Inicializa o servidor web
 void init_parking_lots();                                                                 // Inicializa o estacionamento
 void vWebServerTask(void *pvParameters);                                                  // Tarefa do servidor web
 static err_t tcp_server_accept(void *arg, struct tcp_pcb *newpcb, err_t err);             // Função de callback ao aceitar conexões TCP
 static err_t tcp_server_recv(void *arg, struct tcp_pcb *tpcb, struct pbuf *p, err_t err); // Função de callback para processar requisições HTTP
 void user_request(char **request);                                                        // Tratamento do request do usuário
-void gpio_irq_callback(uint gpio, uint32_t events);                                      // Função de callback para interrupções GPIO
+void gpio_irq_callback(uint gpio, uint32_t events);                                       // Função de callback para interrupções GPIO
 
 parking_lot_t parking_lots[PARKING_LOT_SIZE]; // Array de estruturas para armazenar o status do estacionamento
 
@@ -110,7 +110,7 @@ int init_webserver(struct tcp_pcb **server)
     }
 
     // Coloca o PCB TCP em modo de escuta
-    *server = tcp_listen(*server);  // Atualiza o ponteiro original
+    *server = tcp_listen(*server); // Atualiza o ponteiro original
     if (*server == NULL)
     {
         printf("Falha ao criar servidor de escuta\n");
@@ -134,8 +134,9 @@ void init_parking_lots()
         parking_lots[i].reservation_start_time = 0; // Hora de início da reserva
         parking_lots[i].is_pcd = false;             // Se o estacionamento é PCD (Pessoa com Deficiência)
     }
-    parking_lots[4].is_pcd = true; // o estacionamento 3 é PCD
-
+    parking_lots[3].is_pcd = true; // o estacionamento 3 é PCD
+    parking_lots[1].status = 1;   // o estacionamento 2 está ocupado
+    parking_lots[2].status = 2;   // o estacionamento 3 está reservado
 }
 
 // Função de callback ao aceitar conexões TCP
@@ -196,12 +197,46 @@ static err_t tcp_server_recv(void *arg, struct tcp_pcb *tpcb, struct pbuf *p, er
     // Tratamento de request - Controle dos LEDs
     user_request(&request);
 
-    //char html[1500];
-    //snprintf(html, sizeof(html), html_data, 33.0);
+    char html[3000];
 
-    tcp_write(tpcb, html_data, strlen(html_data), TCP_WRITE_FLAG_COPY);
+    const char *status_class[] = {"disponivel", "ocupada", "reservada"};
+    const char *status_text[] = {"Disponível", "Ocupada", "Reservada"};
+    const char *disabled_btn[] = {"", "disabled", "disabled"};
 
-    // Envia a mensagem
+    snprintf(html, sizeof(html), html_data,
+             // Vaga 1
+             parking_lots[0].is_pcd ? "pcd" : "",
+             status_class[parking_lots[0].status],
+             parking_lots[0].is_pcd ? " - PCD" : "",
+             parking_lots[0].is_pcd ? "Vaga exclusiva para PCD" : "Vaga comum",
+             status_text[parking_lots[0].status],
+             disabled_btn[parking_lots[0].status],
+
+             // Vaga 2
+             parking_lots[1].is_pcd ? "pcd" : "",
+             status_class[parking_lots[1].status],
+             parking_lots[1].is_pcd ? " - PCD" : "",
+             parking_lots[1].is_pcd ? "Vaga exclusiva para PCD" : "Vaga comum",
+             status_text[parking_lots[1].status],
+             disabled_btn[parking_lots[1].status],
+
+             // Vaga 3
+             parking_lots[2].is_pcd ? "pcd" : "",
+             status_class[parking_lots[2].status],
+             parking_lots[2].is_pcd ? " - PCD" : "",
+             parking_lots[2].is_pcd ? "Vaga exclusiva para PCD" : "Vaga comum",
+             status_text[parking_lots[2].status],
+             disabled_btn[parking_lots[2].status],
+
+             // Vaga 4
+             parking_lots[3].is_pcd ? "pcd" : "",
+             status_class[parking_lots[3].status],
+             parking_lots[3].is_pcd ? " - PCD" : "",
+             parking_lots[3].is_pcd ? "Vaga exclusiva para PCD" : "Vaga comum",
+             status_text[parking_lots[3].status],
+             disabled_btn[parking_lots[3].status]);
+
+    tcp_write(tpcb, html, strlen(html), TCP_WRITE_FLAG_COPY);
     tcp_output(tpcb);
 
     // libera memória alocada dinamicamente
@@ -233,7 +268,7 @@ void vWebServerTask(void *pvParameters)
 
     while (1)
     {
-        cyw43_arch_poll(); // Necessário para manter o Wi-Fi ativo
+        cyw43_arch_poll();              // Necessário para manter o Wi-Fi ativo
         vTaskDelay(pdMS_TO_TICKS(100)); // Reduz a carga da CPU
     }
 }
