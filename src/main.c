@@ -41,23 +41,22 @@ int init_cyw43_arch();                                                          
 int init_webserver(struct tcp_pcb **server);                                              // Inicializa o servidor web
 void init_parking_lots();                                                                 // Inicializa o estacionamento
 void vWebServerTask(void *pvParameters);                                                  // Tarefa do servidor web
+void vInputControlTask(void *pvParameters);                                               // Tarefa da interface do usuário
 static err_t tcp_server_accept(void *arg, struct tcp_pcb *newpcb, err_t err);             // Função de callback ao aceitar conexões TCP
 static err_t tcp_server_recv(void *arg, struct tcp_pcb *tpcb, struct pbuf *p, err_t err); // Função de callback para processar requisições HTTP
 void user_request(char **request);                                                        // Tratamento do request do usuário
-void gpio_irq_callback(uint gpio, uint32_t events);                                       // Função de callback para interrupções GPIO
 
 static volatile parking_lot_t parking_lots[PARKING_LOT_SIZE]; // Array de estruturas para armazenar o status do estacionamento
+static volatile int8_t current_parking_lot = 0; // Vaga de estacionamento atual
 
 int main()
 {
     stdio_init_all();
     init_parking_lots(); // Inicializa o estacionamento
 
-    init_btn(BUTTON_B_PIN); // Inicializa os botões
-
-    gpio_set_irq_enabled_with_callback(BUTTON_B_PIN, GPIO_IRQ_EDGE_FALL, true, &gpio_irq_callback); // Configura interrupção no botão B
-
     xTaskCreate(vWebServerTask, "WebServerTask", configMINIMAL_STACK_SIZE,
+                NULL, tskIDLE_PRIORITY + 1, NULL);
+    xTaskCreate(vInputControlTask, "InputControlTask", configMINIMAL_STACK_SIZE,
                 NULL, tskIDLE_PRIORITY + 1, NULL);
 
     vTaskStartScheduler();
@@ -140,7 +139,7 @@ void init_parking_lots()
 // Função de callback ao aceitar conexões TCP
 static err_t tcp_server_accept(void *arg, struct tcp_pcb *newpcb, err_t err)
 {
-    printf("Conexão aceita\n");
+    //printf("Conexão aceita\n");
     tcp_recv(newpcb, tcp_server_recv);
     return ERR_OK;
 }
@@ -152,7 +151,7 @@ void user_request(char **request)
     {
         char endpoint[25];
         snprintf(endpoint, sizeof(endpoint), "GET /reservar-vaga-%d", i + 1);
-        printf("Endpoint: %s\n", endpoint);
+        //printf("Endpoint: %s\n", endpoint);
 
         if (strstr(*request, endpoint) != NULL)
         {
@@ -182,7 +181,7 @@ static err_t tcp_server_recv(void *arg, struct tcp_pcb *tpcb, struct pbuf *p, er
     memcpy(request, p->payload, p->len);
     request[p->len] = '\0';
 
-    //printf("Request: %s\n", request);
+    // printf("Request: %s\n", request);
 
     // Tratamento de request - Controle dos LEDs
     user_request(&request);
@@ -263,8 +262,60 @@ void vWebServerTask(void *pvParameters)
     }
 }
 
-// Função de callback para interrupções GPIO
-void gpio_irq_callback(uint gpio, uint32_t events)
+void vInputControlTask(void *pvParameters)
 {
-    reset_usb_boot(0, 0); // Reinicia o dispositivo e entra no modo de bootloader
+    init_btns(); // Inicializa os botões
+    init_btn(BTN_SW_PIN); // Inicializa o botão do joystick
+    uint64_t last_time_pressed_btn_a = 1; // Variável para armazenar o último tempo em que o botão A foi pressionado
+    uint64_t last_time_pressed_btn_b = 1; // Variável para armazenar o último tempo em que o botão B foi pressionado
+    uint64_t last_time_pressed_btn_sw = 1; // Variável para armazenar o último tempo em que o botão do joystick foi pressionado
+
+    while (1)
+    {
+        uint64_t current_time = to_ms_since_boot(get_absolute_time());
+
+        // Verifica se o botão A está pressionado
+        if (btn_is_pressed(BTN_A_PIN) && (current_time - last_time_pressed_btn_a) > 270)
+        {
+            last_time_pressed_btn_a = current_time; // Atualiza o último tempo em que o botão A foi pressionado
+            // Ação para o botão A
+            printf("Botão A pressionado\n");
+
+            if (current_parking_lot > 0)
+            {
+                current_parking_lot--;
+                printf("Vaga atual: %d\n", current_parking_lot + 1);
+            }
+        }
+        else if (btn_is_pressed(BTN_B_PIN) && (current_time - last_time_pressed_btn_b) > 270)
+        {
+            last_time_pressed_btn_b = current_time; // Atualiza o último tempo em que o botão B foi pressionado
+            // Ação para o botão B
+            printf("Botão B pressionado\n");
+
+            if (current_parking_lot < PARKING_LOT_SIZE - 1)
+            {
+                current_parking_lot++;
+                printf("Vaga atual: %d\n", current_parking_lot + 1);
+            }
+        }
+        else if (btn_is_pressed(BTN_SW_PIN) && (current_time - last_time_pressed_btn_sw) > 270)
+        {
+            last_time_pressed_btn_sw = current_time; // Atualiza o último tempo em que o botão do joystick foi pressionado
+            // Ação para o botão do joystick
+            printf("Botão do joystick pressionado\n");
+
+            if (parking_lots[current_parking_lot].status == 0 || parking_lots[current_parking_lot].status == 2)
+            {
+                parking_lots[current_parking_lot].status = 1; // Vaga ocupada
+                printf("Vaga %d ocupada\n", current_parking_lot + 1);
+            }
+            else if (parking_lots[current_parking_lot].status == 1)
+            {
+                parking_lots[current_parking_lot].status = 0; // Vaga livre
+                printf("Vaga %d livre\n", current_parking_lot + 1);
+            }
+        }
+        vTaskDelay(pdMS_TO_TICKS(100));
+    }
 }
