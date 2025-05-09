@@ -271,18 +271,18 @@ void vInputControlTask(void *pvParameters)
 {
     init_btns();                           // Inicializa os botões
     init_btn(BTN_SW_PIN);                  // Inicializa o botão do joystick
-    uint64_t last_time_pressed_btn_a = 1;  // Variável para armazenar o último tempo em que o botão A foi pressionado
-    uint64_t last_time_pressed_btn_b = 1;  // Variável para armazenar o último tempo em que o botão B foi pressionado
-    uint64_t last_time_pressed_btn_sw = 1; // Variável para armazenar o último tempo em que o botão do joystick foi pressionado
+
+    TickType_t last_a = 0, last_b = 0, last_sw = 0;
+    const TickType_t debounce = pdMS_TO_TICKS(270);
 
     while (1)
     {
-        uint64_t current_time = to_ms_since_boot(get_absolute_time());
+        TickType_t now = xTaskGetTickCount();
 
         // Verifica se o botão A está pressionado
-        if (btn_is_pressed(BTN_A_PIN) && (current_time - last_time_pressed_btn_a) > 270)
+        if (btn_is_pressed(BTN_A_PIN) && (now - last_a) > debounce)
         {
-            last_time_pressed_btn_a = current_time; // Atualiza o último tempo em que o botão A foi pressionado
+            last_a = now; // Atualiza o último tempo em que o botão A foi pressionado
             // Ação para o botão A
             printf("Botão A pressionado\n");
 
@@ -292,9 +292,9 @@ void vInputControlTask(void *pvParameters)
                 printf("Vaga atual: %d\n", current_parking_lot + 1);
             }
         }
-        else if (btn_is_pressed(BTN_B_PIN) && (current_time - last_time_pressed_btn_b) > 270)
+        else if (btn_is_pressed(BTN_B_PIN) && (now - last_b) > debounce)
         {
-            last_time_pressed_btn_b = current_time; // Atualiza o último tempo em que o botão B foi pressionado
+            last_b = now; // Atualiza o último tempo em que o botão B foi pressionado
             // Ação para o botão B
             printf("Botão B pressionado\n");
 
@@ -304,9 +304,9 @@ void vInputControlTask(void *pvParameters)
                 printf("Vaga atual: %d\n", current_parking_lot + 1);
             }
         }
-        else if (btn_is_pressed(BTN_SW_PIN) && (current_time - last_time_pressed_btn_sw) > 270)
+        else if (btn_is_pressed(BTN_SW_PIN) && (now - last_sw) > debounce)
         {
-            last_time_pressed_btn_sw = current_time; // Atualiza o último tempo em que o botão do joystick foi pressionado
+            last_sw = now; // Atualiza o último tempo em que o botão do joystick foi pressionado
             // Ação para o botão do joystick
             printf("Botão do joystick pressionado\n");
 
@@ -321,7 +321,7 @@ void vInputControlTask(void *pvParameters)
                 printf("Vaga %d livre\n", current_parking_lot + 1);
             }
         }
-        vTaskDelay(pdMS_TO_TICKS(100));
+        vTaskDelay(pdMS_TO_TICKS(20));
     }
 }
 
