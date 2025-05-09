@@ -46,7 +46,7 @@ static err_t tcp_server_recv(void *arg, struct tcp_pcb *tpcb, struct pbuf *p, er
 void user_request(char **request);                                                        // Tratamento do request do usuário
 void gpio_irq_callback(uint gpio, uint32_t events);                                       // Função de callback para interrupções GPIO
 
-parking_lot_t parking_lots[PARKING_LOT_SIZE]; // Array de estruturas para armazenar o status do estacionamento
+static volatile parking_lot_t parking_lots[PARKING_LOT_SIZE]; // Array de estruturas para armazenar o status do estacionamento
 
 int main()
 {
@@ -135,8 +135,6 @@ void init_parking_lots()
         parking_lots[i].is_pcd = false;             // Se o estacionamento é PCD (Pessoa com Deficiência)
     }
     parking_lots[3].is_pcd = true; // o estacionamento 3 é PCD
-    parking_lots[1].status = 1;   // o estacionamento 2 está ocupado
-    parking_lots[2].status = 2;   // o estacionamento 3 está reservado
 }
 
 // Função de callback ao aceitar conexões TCP
@@ -150,30 +148,22 @@ static err_t tcp_server_accept(void *arg, struct tcp_pcb *newpcb, err_t err)
 // Tratamento do request do usuário - digite aqui
 void user_request(char **request)
 {
+    for (int i = 0; i < PARKING_LOT_SIZE; i++)
+    {
+        char endpoint[25];
+        snprintf(endpoint, sizeof(endpoint), "GET /reservar-vaga-%d", i + 1);
+        printf("Endpoint: %s\n", endpoint);
 
-    if (strstr(*request, "GET /blue_on") != NULL)
-    {
-        printf("Ligando LED azul\n");
-    }
-    else if (strstr(*request, "GET /blue_off") != NULL)
-    {
-        printf("Desligando LED azul\n");
-    }
-    else if (strstr(*request, "GET /green_on") != NULL)
-    {
-        printf("Ligando LED verde\n");
-    }
-    else if (strstr(*request, "GET /green_off") != NULL)
-    {
-        printf("Desligando LED verde\n");
-    }
-    else if (strstr(*request, "GET /red_on") != NULL)
-    {
-        printf("Ligando LED vermelho\n");
-    }
-    else if (strstr(*request, "GET /red_off") != NULL)
-    {
-        printf("Desligando LED vermelho\n");
+        if (strstr(*request, endpoint) != NULL)
+        {
+            absolute_time_t current_time = to_ms_since_boot(get_absolute_time());
+
+            parking_lots[i].status = 2;                            // Vaga reservada
+            parking_lots[i].reservation_start_time = current_time; // Hora de início da reserva
+
+            printf("Reservando vaga %d\n", i + 1);
+            break; // Sai do loop após encontrar a vaga correspondente
+        }
     }
 }
 
@@ -187,12 +177,12 @@ static err_t tcp_server_recv(void *arg, struct tcp_pcb *tpcb, struct pbuf *p, er
         return ERR_OK;
     }
 
-    // Alocação do request na memória dinámica
+    // Alocação do request na memória dinâmica
     char *request = (char *)malloc(p->len + 1);
     memcpy(request, p->payload, p->len);
     request[p->len] = '\0';
 
-    printf("Request: %s\n", request);
+    //printf("Request: %s\n", request);
 
     // Tratamento de request - Controle dos LEDs
     user_request(&request);
