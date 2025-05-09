@@ -28,6 +28,7 @@
 
 #define CYW43_LED_PIN CYW43_WL_GPIO_LED_PIN // GPIO do CI CYW43
 #define PARKING_LOT_SIZE 4                  // Tamanho do estacionamento
+#define LED_MATRIX_PIN 7                    // GPIO da matriz de LEDs
 
 typedef struct parking_lot
 {
@@ -42,12 +43,13 @@ int init_webserver(struct tcp_pcb **server);                                    
 void init_parking_lots();                                                                 // Inicializa o estacionamento
 void vWebServerTask(void *pvParameters);                                                  // Tarefa do servidor web
 void vInputControlTask(void *pvParameters);                                               // Tarefa da interface do usuário
+void vLedMatrixTask(void *pvParameters);                                                  // Tarefa da matriz de LEDs
 static err_t tcp_server_accept(void *arg, struct tcp_pcb *newpcb, err_t err);             // Função de callback ao aceitar conexões TCP
 static err_t tcp_server_recv(void *arg, struct tcp_pcb *tpcb, struct pbuf *p, err_t err); // Função de callback para processar requisições HTTP
 void user_request(char **request);                                                        // Tratamento do request do usuário
 
 static volatile parking_lot_t parking_lots[PARKING_LOT_SIZE]; // Array de estruturas para armazenar o status do estacionamento
-static volatile int8_t current_parking_lot = 0; // Vaga de estacionamento atual
+static volatile int8_t current_parking_lot = 0;               // Vaga de estacionamento atual
 
 int main()
 {
@@ -55,8 +57,10 @@ int main()
     init_parking_lots(); // Inicializa o estacionamento
 
     xTaskCreate(vWebServerTask, "WebServerTask", configMINIMAL_STACK_SIZE,
-                NULL, tskIDLE_PRIORITY + 1, NULL);
+                NULL, tskIDLE_PRIORITY + 2, NULL);
     xTaskCreate(vInputControlTask, "InputControlTask", configMINIMAL_STACK_SIZE,
+                NULL, tskIDLE_PRIORITY, NULL);
+    xTaskCreate(vLedMatrixTask, "LedMatrixTask", configMINIMAL_STACK_SIZE,
                 NULL, tskIDLE_PRIORITY + 1, NULL);
 
     vTaskStartScheduler();
@@ -139,7 +143,7 @@ void init_parking_lots()
 // Função de callback ao aceitar conexões TCP
 static err_t tcp_server_accept(void *arg, struct tcp_pcb *newpcb, err_t err)
 {
-    //printf("Conexão aceita\n");
+    // printf("Conexão aceita\n");
     tcp_recv(newpcb, tcp_server_recv);
     return ERR_OK;
 }
@@ -151,7 +155,7 @@ void user_request(char **request)
     {
         char endpoint[25];
         snprintf(endpoint, sizeof(endpoint), "GET /reservar-vaga-%d", i + 1);
-        //printf("Endpoint: %s\n", endpoint);
+        // printf("Endpoint: %s\n", endpoint);
 
         if (strstr(*request, endpoint) != NULL)
         {
@@ -262,12 +266,13 @@ void vWebServerTask(void *pvParameters)
     }
 }
 
+// Tarefa do controle de entrada
 void vInputControlTask(void *pvParameters)
 {
-    init_btns(); // Inicializa os botões
-    init_btn(BTN_SW_PIN); // Inicializa o botão do joystick
-    uint64_t last_time_pressed_btn_a = 1; // Variável para armazenar o último tempo em que o botão A foi pressionado
-    uint64_t last_time_pressed_btn_b = 1; // Variável para armazenar o último tempo em que o botão B foi pressionado
+    init_btns();                           // Inicializa os botões
+    init_btn(BTN_SW_PIN);                  // Inicializa o botão do joystick
+    uint64_t last_time_pressed_btn_a = 1;  // Variável para armazenar o último tempo em que o botão A foi pressionado
+    uint64_t last_time_pressed_btn_b = 1;  // Variável para armazenar o último tempo em que o botão B foi pressionado
     uint64_t last_time_pressed_btn_sw = 1; // Variável para armazenar o último tempo em que o botão do joystick foi pressionado
 
     while (1)
@@ -316,6 +321,61 @@ void vInputControlTask(void *pvParameters)
                 printf("Vaga %d livre\n", current_parking_lot + 1);
             }
         }
+        vTaskDelay(pdMS_TO_TICKS(100));
+    }
+}
+
+// Tarefa da matriz de LEDs
+void vLedMatrixTask(void *pvParameters)
+{
+    int parking_lot_positions[PARKING_LOT_SIZE][4] = {
+        {15, 16, 23, 24},
+        {18, 19, 20, 21},
+        {3, 4, 5, 6},
+        {0, 1, 8, 9},
+    };
+
+    uint8_t last_status[PARKING_LOT_SIZE] = {255, 255, 255, 255};
+    bool first_run = true;
+
+    ws2812b_init(LED_MATRIX_PIN);
+    ws2812b_clear();
+    ws2812b_write();
+
+    while (1)
+    {
+        bool changed = false;
+
+        for (int i = 0; i < PARKING_LOT_SIZE; i++)
+        {
+            if (first_run || last_status[i] != parking_lots[i].status)
+            {
+                int color[3] = {0, 0, 0};
+
+                if (parking_lots[i].is_pcd && parking_lots[i].status == 0)
+                    color[2] = 8; // Azul
+                else if (parking_lots[i].status == 0)
+                    color[1] = 8; // Verde
+                else if (parking_lots[i].status == 1)
+                    color[0] = 8; // Vermelho
+                else if (parking_lots[i].status == 2)
+                {
+                    color[0] = 4; // Amarelo
+                    color[1] = 8;
+                }
+
+                for (int j = 0; j < 4; j++)
+                    ws2812b_draw_point(parking_lot_positions[i][j], color);
+
+                last_status[i] = parking_lots[i].status;
+                changed = true;
+            }
+        }
+
+        if (changed)
+            ws2812b_write();
+
+        first_run = false;
         vTaskDelay(pdMS_TO_TICKS(100));
     }
 }
