@@ -14,17 +14,21 @@
 #include "lib/ws2812b/ws2812b.h"
 #include "lib/buzzer/buzzer.h"
 
+#include "lwip/pbuf.h"  // Lightweight IP stack - manipulação de buffers de pacotes de rede
+#include "lwip/tcp.h"   // Lightweight IP stack - fornece funções e estruturas para trabalhar com o protocolo TCP
+#include "lwip/netif.h" // Lightweight IP stack - fornece funções e estruturas para trabalhar com interfaces de rede (netif)
+
 #include "FreeRTOS.h"
 #include "FreeRTOSConfig.h"
 #include "task.h"
-
 
 int main()
 {
     stdio_init_all();
 
     // Initialise the Wi-Fi chip
-    if (cyw43_arch_init()) {
+    if (cyw43_arch_init())
+    {
         printf("Wi-Fi init failed\n");
         return -1;
     }
@@ -32,7 +36,8 @@ int main()
     // Example to turn on the Pico W LED
     cyw43_arch_gpio_put(CYW43_WL_GPIO_LED_PIN, 1);
 
-    while (true) {
+    while (true)
+    {
         printf("Hello, world!\n");
         sleep_ms(1000);
     }
