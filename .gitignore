@@ -608,3 +608,4 @@ MigrationBackup/
 
 build
 pico_sdk_import.cmake
+.vscode
