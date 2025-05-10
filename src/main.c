@@ -34,7 +34,7 @@ typedef struct parking_lot
 {
     uint8_t id;                             // ID do estacionamento
     uint8_t status;                         // Status do estacionamento (0 - livre, 1 - ocupado, 2 - reservado)
-    absolute_time_t reservation_start_time; // Hora de início da reserva
+    TickType_t reservation_start_time; // Hora de início da reserva
     bool is_pcd;                            // Se o estacionamento é PCD (Pessoa com Deficiência)
 } parking_lot_t;
 
@@ -57,7 +57,7 @@ int main()
     stdio_init_all();
     init_parking_lots(); // Inicializa o estacionamento
 
-    xTaskCreate(vWebServerTask, "WebServerTask", configMINIMAL_STACK_SIZE,
+    xTaskCreate(vWebServerTask, "WebServerTask", 2*configMINIMAL_STACK_SIZE,
                 NULL, tskIDLE_PRIORITY + 2, NULL);
     xTaskCreate(vInputControlTask, "InputControlTask", configMINIMAL_STACK_SIZE,
                 NULL, tskIDLE_PRIORITY, NULL);
@@ -162,7 +162,7 @@ void user_request(char **request)
 
         if (strstr(*request, endpoint) != NULL)
         {
-            absolute_time_t current_time = to_ms_since_boot(get_absolute_time());
+            absolute_time_t current_time = pdTICKS_TO_MS(xTaskGetTickCount());
 
             parking_lots[i].status = 2;                            // Vaga reservada
             parking_lots[i].reservation_start_time = current_time; // Hora de início da reserva
@@ -340,6 +340,8 @@ void vLedMatrixTask(void *pvParameters)
 
     uint8_t last_status[PARKING_LOT_SIZE] = {255, 255, 255, 255};
     bool first_run = true;
+    bool changed = false;
+    int color[3] = {0, 0, 0};
 
     ws2812b_init(LED_MATRIX_PIN);
     ws2812b_clear();
@@ -347,13 +349,15 @@ void vLedMatrixTask(void *pvParameters)
 
     while (1)
     {
-        bool changed = false;
+        changed = false;
 
         for (int i = 0; i < PARKING_LOT_SIZE; i++)
         {
             if (first_run || last_status[i] != parking_lots[i].status)
             {
-                int color[3] = {0, 0, 0};
+                color[0] = 0; // Vermelho
+                color[1] = 0; // Verde
+                color[2] = 0; // Azul
 
                 if (parking_lots[i].is_pcd && parking_lots[i].status == 0)
                     color[2] = 8; // Azul
