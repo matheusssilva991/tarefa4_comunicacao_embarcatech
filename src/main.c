@@ -2,23 +2,23 @@
 
 #include "pico/stdlib.h"
 #include "pico/cyw43_arch.h" // Biblioteca para arquitetura Wi-Fi da Pico com CYW43
-#include "hardware/i2c.h"
+// #include "hardware/i2c.h"
 #include "hardware/pio.h"
-#include "hardware/timer.h"
-#include "hardware/clocks.h"
-#include "pico/bootrom.h" // Biblioteca para inicialização do bootrom
+// #include "hardware/timer.h"
+// #include "hardware/clocks.h"
+// #include "pico/bootrom.h" // Biblioteca para inicialização do bootrom
 
 #include "lwip/pbuf.h"  // Lightweight IP stack - manipulação de buffers de pacotes de rede
 #include "lwip/tcp.h"   // Lightweight IP stack - fornece funções e estruturas para trabalhar com o protocolo TCP
 #include "lwip/netif.h" // Lightweight IP stack - fornece funções e estruturas para trabalhar com interfaces de rede (netif)
 #include "lwipopts.h"   // Lightweight IP stack - O lwIP é uma implementação independente do conjunto de protocolos TCP/IP
 
-#include "lib/ssd1306/ssd1306.h"
-#include "lib/ssd1306/display.h"
+/* #include "lib/ssd1306/ssd1306.h"
+#include "lib/ssd1306/display.h" */
 #include "lib/led/led.h"
 #include "lib/button/button.h"
 #include "lib/ws2812b/ws2812b.h"
-#include "lib/buzzer/buzzer.h"
+// #include "lib/buzzer/buzzer.h"
 #include "config/wifi_config.h"
 #include "public/html_data.h"
 
@@ -269,8 +269,8 @@ void vWebServerTask(void *pvParameters)
 // Tarefa do controle de entrada
 void vInputControlTask(void *pvParameters)
 {
-    init_btns();                           // Inicializa os botões
-    init_btn(BTN_SW_PIN);                  // Inicializa o botão do joystick
+    init_btns();          // Inicializa os botões
+    init_btn(BTN_SW_PIN); // Inicializa o botão do joystick
 
     TickType_t last_a = 0, last_b = 0, last_sw = 0;
     const TickType_t debounce = pdMS_TO_TICKS(270);
