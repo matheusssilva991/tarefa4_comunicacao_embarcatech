@@ -44,6 +44,7 @@ void init_parking_lots();                                                       
 void vWebServerTask(void *pvParameters);                                                  // Tarefa do servidor web
 void vInputControlTask(void *pvParameters);                                               // Tarefa da interface do usuário
 void vLedMatrixTask(void *pvParameters);                                                  // Tarefa da matriz de LEDs
+void vReservationTimeoutTask(void *pvParameters);                                         // Tarefa de reserva
 static err_t tcp_server_accept(void *arg, struct tcp_pcb *newpcb, err_t err);             // Função de callback ao aceitar conexões TCP
 static err_t tcp_server_recv(void *arg, struct tcp_pcb *tpcb, struct pbuf *p, err_t err); // Função de callback para processar requisições HTTP
 void user_request(char **request);                                                        // Tratamento do request do usuário
@@ -62,6 +63,8 @@ int main()
                 NULL, tskIDLE_PRIORITY, NULL);
     xTaskCreate(vLedMatrixTask, "LedMatrixTask", configMINIMAL_STACK_SIZE,
                 NULL, tskIDLE_PRIORITY + 1, NULL);
+    xTaskCreate(vReservationTimeoutTask, "ReservationTimeoutTask", configMINIMAL_STACK_SIZE,
+                NULL, tskIDLE_PRIORITY + 1, NULL);
 
     vTaskStartScheduler();
     panic_unsupported();
@@ -72,7 +75,7 @@ int init_cyw43_arch()
 {
     while (cyw43_arch_init())
     {
-        printf("Falha ao inicializar Wi-Fi\n");
+        //printf("Falha ao inicializar Wi-Fi\n");
         sleep_ms(100);
         return -1;
     }
@@ -84,14 +87,14 @@ int init_cyw43_arch()
     cyw43_arch_enable_sta_mode();
 
     // Conectar à rede WiFI - fazer um loop até que esteja conectado
-    printf("Conectando ao Wi-Fi...\n");
+    //printf("Conectando ao Wi-Fi...\n");
     while (cyw43_arch_wifi_connect_timeout_ms(WIFI_SSID, WIFI_PASSWORD, CYW43_AUTH_WPA2_AES_PSK, 20000))
     {
-        printf("Falha ao conectar ao Wi-Fi\n");
+        //printf("Falha ao conectar ao Wi-Fi\n");
         sleep_ms(100);
         return -1;
     }
-    printf("Conectado ao Wi-Fi\n");
+    //printf("Conectado ao Wi-Fi\n");
 
     // Caso seja a interface de rede padrão - imprimir o IP do dispositivo.
     if (netif_default)
@@ -108,7 +111,7 @@ int init_webserver(struct tcp_pcb **server)
     // vincula um PCB TCP a um endereço IP e porta específicos
     if (tcp_bind(*server, IP_ADDR_ANY, 80) != ERR_OK)
     {
-        printf("Falha ao associar servidor TCP à porta 80\n");
+        //printf("Falha ao associar servidor TCP à porta 80\n");
         return -1;
     }
 
@@ -116,13 +119,13 @@ int init_webserver(struct tcp_pcb **server)
     *server = tcp_listen(*server); // Atualiza o ponteiro original
     if (*server == NULL)
     {
-        printf("Falha ao criar servidor de escuta\n");
+        //printf("Falha ao criar servidor de escuta\n");
         return -1;
     }
 
     // Define função de callback para aceitar conexões
     tcp_accept(*server, tcp_server_accept);
-    printf("Servidor ouvindo na porta 80\n");
+    //printf("Servidor ouvindo na porta 80\n");
 
     return 0;
 }
@@ -164,7 +167,7 @@ void user_request(char **request)
             parking_lots[i].status = 2;                            // Vaga reservada
             parking_lots[i].reservation_start_time = current_time; // Hora de início da reserva
 
-            printf("Reservando vaga %d\n", i + 1);
+            //printf("Reservando vaga %d\n", i + 1);
             break; // Sai do loop após encontrar a vaga correspondente
         }
     }
@@ -248,14 +251,14 @@ void vWebServerTask(void *pvParameters)
 
     if (init_cyw43_arch() != 0)
     {
-        printf("Falha ao inicializar Wi-Fi\n");
+        //printf("Falha ao inicializar Wi-Fi\n");
         vTaskDelete(NULL);
     }
 
     server = tcp_new(); // Cria um novo PCB TCP
     if (!server || init_webserver(&server) != 0)
     {
-        printf("Falha ao inicializar servidor web\n");
+        //printf("Falha ao inicializar servidor web\n");
         vTaskDelete(NULL);
     }
 
@@ -284,41 +287,41 @@ void vInputControlTask(void *pvParameters)
         {
             last_a = now; // Atualiza o último tempo em que o botão A foi pressionado
             // Ação para o botão A
-            printf("Botão A pressionado\n");
+            //printf("Botão A pressionado\n");
 
             if (current_parking_lot > 0)
             {
                 current_parking_lot--;
-                printf("Vaga atual: %d\n", current_parking_lot + 1);
+                //printf("Vaga atual: %d\n", current_parking_lot + 1);
             }
         }
         else if (btn_is_pressed(BTN_B_PIN) && (now - last_b) > debounce)
         {
             last_b = now; // Atualiza o último tempo em que o botão B foi pressionado
             // Ação para o botão B
-            printf("Botão B pressionado\n");
+            //printf("Botão B pressionado\n");
 
             if (current_parking_lot < PARKING_LOT_SIZE - 1)
             {
                 current_parking_lot++;
-                printf("Vaga atual: %d\n", current_parking_lot + 1);
+                //printf("Vaga atual: %d\n", current_parking_lot + 1);
             }
         }
         else if (btn_is_pressed(BTN_SW_PIN) && (now - last_sw) > debounce)
         {
             last_sw = now; // Atualiza o último tempo em que o botão do joystick foi pressionado
             // Ação para o botão do joystick
-            printf("Botão do joystick pressionado\n");
+            //printf("Botão do joystick pressionado\n");
 
             if (parking_lots[current_parking_lot].status == 0 || parking_lots[current_parking_lot].status == 2)
             {
                 parking_lots[current_parking_lot].status = 1; // Vaga ocupada
-                printf("Vaga %d ocupada\n", current_parking_lot + 1);
+                //printf("Vaga %d ocupada\n", current_parking_lot + 1);
             }
             else if (parking_lots[current_parking_lot].status == 1)
             {
                 parking_lots[current_parking_lot].status = 0; // Vaga livre
-                printf("Vaga %d livre\n", current_parking_lot + 1);
+                //printf("Vaga %d livre\n", current_parking_lot + 1);
             }
         }
         vTaskDelay(pdMS_TO_TICKS(20));
@@ -377,5 +380,28 @@ void vLedMatrixTask(void *pvParameters)
 
         first_run = false;
         vTaskDelay(pdMS_TO_TICKS(100));
+    }
+}
+
+// Tarefa de reserva
+void vReservationTimeoutTask(void *pvParameters)
+{
+    while (1)
+    {
+        TickType_t now = xTaskGetTickCount();
+
+        for (int i = 0; i < PARKING_LOT_SIZE; i++)
+        {
+            if (parking_lots[i].status == 2)
+            { // Se a vaga estiver reservada
+                if ((now - parking_lots[i].reservation_start_time) > pdMS_TO_TICKS(10000))
+                {
+                    parking_lots[i].status = 0; // Libera a vaga
+                    //printf("Reserva da vaga %d expirada\n", i + 1);
+                }
+            }
+        }
+
+        vTaskDelay(pdMS_TO_TICKS(250)); // Verifica a cada segundo
     }
 }
