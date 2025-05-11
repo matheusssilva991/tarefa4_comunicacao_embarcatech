@@ -143,7 +143,7 @@ void init_parking_lots()
         parking_lots[i].reservation_start_time = 0; // Hora de início da reserva
         parking_lots[i].is_pcd = false;             // Se o estacionamento é PCD (Pessoa com Deficiência)
     }
-    parking_lots[3].is_pcd = true; // o estacionamento 3 é PCD
+    parking_lots[PARKING_LOT_SIZE - 1].is_pcd = true; // o estacionamento 3 é PCD
 }
 
 // Função de callback ao aceitar conexões TCP
@@ -411,6 +411,7 @@ void vReservationTimeoutTask(void *pvParameters)
     }
 }
 
+// Tarefa do display
 void vDisplayTask(void *pvParameters)
 {
     ssd1306_t ssd;
