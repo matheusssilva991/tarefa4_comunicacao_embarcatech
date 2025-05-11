@@ -2,10 +2,10 @@
 
 #include "pico/stdlib.h"
 #include "pico/cyw43_arch.h" // Biblioteca para arquitetura Wi-Fi da Pico com CYW43
-// #include "hardware/i2c.h"
+#include "hardware/i2c.h"
 #include "hardware/pio.h"
-// #include "hardware/timer.h"
-// #include "hardware/clocks.h"
+#include "hardware/timer.h"
+#include "hardware/clocks.h"
 // #include "pico/bootrom.h" // Biblioteca para inicialização do bootrom
 
 #include "lwip/pbuf.h"  // Lightweight IP stack - manipulação de buffers de pacotes de rede
@@ -13,8 +13,8 @@
 #include "lwip/netif.h" // Lightweight IP stack - fornece funções e estruturas para trabalhar com interfaces de rede (netif)
 #include "lwipopts.h"   // Lightweight IP stack - O lwIP é uma implementação independente do conjunto de protocolos TCP/IP
 
-/* #include "lib/ssd1306/ssd1306.h"
-#include "lib/ssd1306/display.h" */
+#include "lib/ssd1306/ssd1306.h"
+#include "lib/ssd1306/display.h"
 #include "lib/led/led.h"
 #include "lib/button/button.h"
 #include "lib/ws2812b/ws2812b.h"
@@ -45,6 +45,7 @@ void vWebServerTask(void *pvParameters);                                        
 void vInputControlTask(void *pvParameters);                                               // Tarefa da interface do usuário
 void vLedMatrixTask(void *pvParameters);                                                  // Tarefa da matriz de LEDs
 void vReservationTimeoutTask(void *pvParameters);                                         // Tarefa de reserva
+void vDisplayTask(void *pvParameters);                                                  // Tarefa do display
 static err_t tcp_server_accept(void *arg, struct tcp_pcb *newpcb, err_t err);             // Função de callback ao aceitar conexões TCP
 static err_t tcp_server_recv(void *arg, struct tcp_pcb *tpcb, struct pbuf *p, err_t err); // Função de callback para processar requisições HTTP
 void user_request(char **request);                                                        // Tratamento do request do usuário
@@ -62,8 +63,10 @@ int main()
     xTaskCreate(vInputControlTask, "InputControlTask", configMINIMAL_STACK_SIZE,
                 NULL, tskIDLE_PRIORITY, NULL);
     xTaskCreate(vLedMatrixTask, "LedMatrixTask", configMINIMAL_STACK_SIZE,
-                NULL, tskIDLE_PRIORITY + 1, NULL);
+                NULL, tskIDLE_PRIORITY + 2, NULL);
     xTaskCreate(vReservationTimeoutTask, "ReservationTimeoutTask", configMINIMAL_STACK_SIZE,
+                NULL, tskIDLE_PRIORITY + 1, NULL);
+    xTaskCreate(vDisplayTask, "DisplayTask", configMINIMAL_STACK_SIZE,
                 NULL, tskIDLE_PRIORITY + 1, NULL);
 
     vTaskStartScheduler();
@@ -344,8 +347,6 @@ void vLedMatrixTask(void *pvParameters)
     int color[3] = {0, 0, 0};
 
     ws2812b_init(LED_MATRIX_PIN);
-    ws2812b_clear();
-    ws2812b_write();
 
     while (1)
     {
@@ -407,5 +408,58 @@ void vReservationTimeoutTask(void *pvParameters)
         }
 
         vTaskDelay(pdMS_TO_TICKS(250)); // Verifica a cada segundo
+    }
+}
+
+void vDisplayTask(void *pvParameters)
+{
+    ssd1306_t ssd;
+    init_display(&ssd);
+
+    int current_status[PARKING_LOT_SIZE] = {0};
+    int old_status[PARKING_LOT_SIZE] = {255}; // Força a atualização inicial
+    bool is_changed = true;
+
+    while (1)
+    {
+        // Verifica se houve mudança no status do estacionamento
+        for (int i = 0; i < PARKING_LOT_SIZE; i++)
+        {
+            current_status[i] = parking_lots[i].status;
+
+            if (current_status[i] != old_status[i])
+            {
+                is_changed = true;
+                old_status[i] = current_status[i];
+            }
+        }
+
+        // Atualiza o display apenas se houve mudança
+        if (!is_changed)
+        {
+            vTaskDelay(pdMS_TO_TICKS(500)); // Atualiza a cada 500ms
+            continue;
+        }
+
+        // Atualiza o display
+        is_changed = false;
+        ssd1306_fill(&ssd, false); // Limpa a tela
+        draw_centered_text(&ssd, "Estacionamento", 0);
+        ssd1306_draw_string(&ssd, "Vagas:", 0, 15);
+
+        for (int i = 0; i < PARKING_LOT_SIZE; i++)
+        {
+            const char *status_text = (parking_lots[i].status == 0) ? "Livre" :
+                                       (parking_lots[i].status == 1) ? "Ocupada" :
+                                       (parking_lots[i].status == 2) ? "Reservada" : "Indefinida";
+
+            char buffer[20];
+
+            snprintf(buffer, sizeof(buffer), "%d: %s", i + 1, status_text);
+            ssd1306_draw_string(&ssd, buffer, 5, (i * 10) + 25);
+        }
+
+        ssd1306_send_data(&ssd); // Envia os dados para o display
+        vTaskDelay(pdMS_TO_TICKS(500)); // Atualiza a cada 500ms
     }
 }
