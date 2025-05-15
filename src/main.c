@@ -50,9 +50,14 @@ void vLedRGBTask(void *pvParameters);                                           
 static err_t tcp_server_accept(void *arg, struct tcp_pcb *newpcb, err_t err);             // Função de callback ao aceitar conexões TCP
 static err_t tcp_server_recv(void *arg, struct tcp_pcb *tpcb, struct pbuf *p, err_t err); // Função de callback para processar requisições HTTP
 void user_request(char **request);                                                        // Tratamento do request do usuário
+void notify_output_tasks(); // Verifica se há notificações pendentes
 
 static volatile parking_lot_t parking_lots[PARKING_LOT_SIZE]; // Array de estruturas para armazenar o status do estacionamento
 static volatile int8_t current_parking_lot = 0;               // Vaga de estacionamento atual
+
+TaskHandle_t xDisplayTaskHandle = NULL;
+TaskHandle_t xLedRGBTaskHandle = NULL;
+TaskHandle_t xLedMatrixTaskHandle = NULL;
 
 int main()
 {
@@ -62,15 +67,19 @@ int main()
     xTaskCreate(vWebServerTask, "WebServerTask", 2 * configMINIMAL_STACK_SIZE,
                 NULL, tskIDLE_PRIORITY + 2, NULL);
     xTaskCreate(vInputControlTask, "InputControlTask", configMINIMAL_STACK_SIZE,
-                NULL, tskIDLE_PRIORITY, NULL);
-    xTaskCreate(vLedMatrixTask, "LedMatrixTask", configMINIMAL_STACK_SIZE,
                 NULL, tskIDLE_PRIORITY + 2, NULL);
+    xTaskCreate(vLedMatrixTask, "LedMatrixTask", configMINIMAL_STACK_SIZE,
+                NULL, tskIDLE_PRIORITY + 2, &xLedMatrixTaskHandle);
     xTaskCreate(vReservationTimeoutTask, "ReservationTimeoutTask", configMINIMAL_STACK_SIZE,
                 NULL, tskIDLE_PRIORITY + 1, NULL);
     xTaskCreate(vDisplayTask, "DisplayTask", configMINIMAL_STACK_SIZE,
-                NULL, tskIDLE_PRIORITY + 1, NULL);
+                NULL, tskIDLE_PRIORITY + 1, &xDisplayTaskHandle);
     xTaskCreate(vLedRGBTask, "LedRGBTask", configMINIMAL_STACK_SIZE,
-                NULL, tskIDLE_PRIORITY + 1, NULL);
+                NULL, tskIDLE_PRIORITY, &xLedRGBTaskHandle);
+
+    xTaskNotifyGive(xLedMatrixTaskHandle); // Notifica a tarefa da matriz de LEDs
+    xTaskNotifyGive(xDisplayTaskHandle);   // Notifica a tarefa do display
+    xTaskNotifyGive(xLedRGBTaskHandle);    // Notifica a tarefa do LED RGB
 
     vTaskStartScheduler();
     panic_unsupported();
@@ -164,7 +173,6 @@ void user_request(char **request)
     {
         char endpoint[25];
         snprintf(endpoint, sizeof(endpoint), "GET /reservar-vaga-%d", i + 1);
-        // printf("Endpoint: %s\n", endpoint);
 
         if (strstr(*request, endpoint) != NULL)
         {
@@ -173,7 +181,7 @@ void user_request(char **request)
             parking_lots[i].status = 2;                            // Vaga reservada
             parking_lots[i].reservation_start_time = current_time; // Hora de início da reserva
 
-            // printf("Reservando vaga %d\n", i + 1);
+            notify_output_tasks(); // Notifica as tarefas de saída
             break; // Sai do loop após encontrar a vaga correspondente
         }
     }
@@ -292,42 +300,31 @@ void vInputControlTask(void *pvParameters)
         if (btn_is_pressed(BTN_A_PIN) && (now - last_a) > debounce)
         {
             last_a = now; // Atualiza o último tempo em que o botão A foi pressionado
-            // Ação para o botão A
-            // printf("Botão A pressionado\n");
 
             if (current_parking_lot > 0)
-            {
                 current_parking_lot--;
-                // printf("Vaga atual: %d\n", current_parking_lot + 1);
-            }
         }
         else if (btn_is_pressed(BTN_B_PIN) && (now - last_b) > debounce)
         {
             last_b = now; // Atualiza o último tempo em que o botão B foi pressionado
-            // Ação para o botão B
-            // printf("Botão B pressionado\n");
 
             if (current_parking_lot < PARKING_LOT_SIZE - 1)
-            {
                 current_parking_lot++;
-                // printf("Vaga atual: %d\n", current_parking_lot + 1);
-            }
+
         }
         else if (btn_is_pressed(BTN_SW_PIN) && (now - last_sw) > debounce)
         {
             last_sw = now; // Atualiza o último tempo em que o botão do joystick foi pressionado
-            // Ação para o botão do joystick
-            // printf("Botão do joystick pressionado\n");
+
+            notify_output_tasks(); // Verifica se há notificações pendentes
 
             if (parking_lots[current_parking_lot].status == 0 || parking_lots[current_parking_lot].status == 2)
             {
                 parking_lots[current_parking_lot].status = 1; // Vaga ocupada
-                // printf("Vaga %d ocupada\n", current_parking_lot + 1);
             }
             else if (parking_lots[current_parking_lot].status == 1)
             {
                 parking_lots[current_parking_lot].status = 0; // Vaga livre
-                // printf("Vaga %d livre\n", current_parking_lot + 1);
             }
         }
         vTaskDelay(pdMS_TO_TICKS(20));
@@ -344,49 +341,38 @@ void vLedMatrixTask(void *pvParameters)
         {0, 1, 8, 9},
     };
 
-    uint8_t last_status[PARKING_LOT_SIZE] = {255, 255, 255, 255};
-    bool first_run = true;
-    bool changed = false;
     int color[3] = {0, 0, 0};
 
     ws2812b_init(LED_MATRIX_PIN);
 
     while (1)
     {
-        changed = false;
+        // Espera por uma notificação
+        ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
 
         for (int i = 0; i < PARKING_LOT_SIZE; i++)
         {
-            if (first_run || last_status[i] != parking_lots[i].status)
+            color[0] = 0; // Vermelho
+            color[1] = 0; // Verde
+            color[2] = 0; // Azul
+
+            if (parking_lots[i].is_pcd && parking_lots[i].status == 0)
+                color[2] = 8; // Azul
+            else if (parking_lots[i].status == 0)
+                color[1] = 8; // Verde
+            else if (parking_lots[i].status == 1)
+                color[0] = 8; // Vermelho
+            else if (parking_lots[i].status == 2)
             {
-                color[0] = 0; // Vermelho
-                color[1] = 0; // Verde
-                color[2] = 0; // Azul
-
-                if (parking_lots[i].is_pcd && parking_lots[i].status == 0)
-                    color[2] = 8; // Azul
-                else if (parking_lots[i].status == 0)
-                    color[1] = 8; // Verde
-                else if (parking_lots[i].status == 1)
-                    color[0] = 8; // Vermelho
-                else if (parking_lots[i].status == 2)
-                {
-                    color[0] = 4; // Amarelo
-                    color[1] = 8;
-                }
-
-                for (int j = 0; j < 4; j++)
-                    ws2812b_draw_point(parking_lot_positions[i][j], color);
-
-                last_status[i] = parking_lots[i].status;
-                changed = true;
+                color[0] = 4; // Amarelo
+                color[1] = 8;
             }
+
+            for (int j = 0; j < 4; j++)
+                ws2812b_draw_point(parking_lot_positions[i][j], color);
         }
 
-        if (changed)
-            ws2812b_write();
-
-        first_run = false;
+        ws2812b_write();
         vTaskDelay(pdMS_TO_TICKS(100));
     }
 }
@@ -405,6 +391,8 @@ void vReservationTimeoutTask(void *pvParameters)
                 if ((now - parking_lots[i].reservation_start_time) > pdMS_TO_TICKS(10000))
                 {
                     parking_lots[i].status = 0; // Libera a vaga
+
+                    notify_output_tasks(); // Verifica se há notificações pendentes
                     // printf("Reserva da vaga %d expirada\n", i + 1);
                 }
             }
@@ -420,33 +408,11 @@ void vDisplayTask(void *pvParameters)
     ssd1306_t ssd;
     init_display(&ssd);
 
-    int current_status[PARKING_LOT_SIZE] = {0};
-    int old_status[PARKING_LOT_SIZE] = {255}; // Força a atualização inicial
-    bool is_changed = true;
-
     while (1)
     {
-        // Verifica se houve mudança no status do estacionamento
-        for (int i = 0; i < PARKING_LOT_SIZE; i++)
-        {
-            current_status[i] = parking_lots[i].status;
+        // Espera por uma notificação
+        ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
 
-            if (current_status[i] != old_status[i])
-            {
-                is_changed = true;
-                old_status[i] = current_status[i];
-            }
-        }
-
-        // Atualiza o display apenas se houve mudança
-        if (!is_changed)
-        {
-            vTaskDelay(pdMS_TO_TICKS(500)); // Atualiza a cada 500ms
-            continue;
-        }
-
-        // Atualiza o display
-        is_changed = false;
         ssd1306_fill(&ssd, false); // Limpa a tela
         draw_centered_text(&ssd, "Estacionamento", 0);
         ssd1306_draw_string(&ssd, "Vagas:", 0, 15);
@@ -464,7 +430,7 @@ void vDisplayTask(void *pvParameters)
         }
 
         ssd1306_send_data(&ssd);        // Envia os dados para o display
-        vTaskDelay(pdMS_TO_TICKS(500)); // Atualiza a cada 500ms
+        vTaskDelay(pdMS_TO_TICKS(100)); // Atualiza a cada 100ms
     }
 }
 
@@ -475,6 +441,9 @@ void vLedRGBTask(void *pvParameters) {
     int free_parking_lots;
 
     while (1) {
+        // Espera por uma notificação
+        ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
+
         free_parking_lots = 0;
 
         // Verifica a quantidade de vagas livres
@@ -492,5 +461,20 @@ void vLedRGBTask(void *pvParameters) {
             set_led_yellow();
 
         vTaskDelay(pdMS_TO_TICKS(100));
+    }
+}
+
+// Verifica se há notificações pendentes
+void notify_output_tasks() {
+    if (xDisplayTaskHandle != NULL) {
+        xTaskNotifyGive(xDisplayTaskHandle);
+    }
+
+    if (xLedMatrixTaskHandle != NULL) {
+        xTaskNotifyGive(xLedMatrixTaskHandle);
+    }
+
+    if (xLedRGBTaskHandle != NULL) {
+        xTaskNotifyGive(xLedRGBTaskHandle);
     }
 }

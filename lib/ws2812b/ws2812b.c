@@ -65,11 +65,10 @@ void ws2812b_write()
 void ws2812b_draw_point(uint8_t point_index, const int color[3]) {
 
     ws2812b_set_led(point_index, color[0], color[1], color[2]);
-    /* printf("Desenhando ponto %d\n", point_index);
-    printf("Cor: %d %d %d\n", color[0], color[1], color[2]); */
 
     // Atualiza a matriz de LEDs.
     ws2812b_write();
+    sleep_us(100); // Espera 100us
 }
 
 // Preenche uma coluna da matriz de LEDs com uma cor específica.
