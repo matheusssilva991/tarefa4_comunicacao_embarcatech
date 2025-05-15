@@ -34,7 +34,7 @@ add_executable(${PROJECT_NAME} src/main.c
         lib/ssd1306/ssd1306.c # SSD1306 library
         lib/ssd1306/display.c # Display library
         lib/ws2812b/ws2812b.c # WS2812B library
-        #lib/buzzer/buzzer.c # Buzzer library)
+        lib/buzzer/buzzer.c # Buzzer library)
 )
 
 pico_set_program_name(${PROJECT_NAME} "tarefa4_comunicacao_embarcatech")
@@ -75,7 +75,7 @@ target_link_libraries(${PROJECT_NAME}
         hardware_clocks
         pico_cyw43_arch_lwip_threadsafe_background
         #hardware_adc
-        #hardware_pwm
+        hardware_pwm
         FreeRTOS-Kernel
         FreeRTOS-Kernel-Heap4
         )

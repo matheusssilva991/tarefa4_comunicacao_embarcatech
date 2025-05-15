@@ -18,7 +18,7 @@
 #include "lib/led/led.h"
 #include "lib/button/button.h"
 #include "lib/ws2812b/ws2812b.h"
-// #include "lib/buzzer/buzzer.h"
+#include "lib/buzzer/buzzer.h"
 #include "config/wifi_config.h"
 #include "public/html_data.h"
 
@@ -47,6 +47,7 @@ void vLedMatrixTask(void *pvParameters);                                        
 void vReservationTimeoutTask(void *pvParameters);                                         // Tarefa de reserva
 void vDisplayTask(void *pvParameters);                                                    // Tarefa do display
 void vLedRGBTask(void *pvParameters);                                                        // Tarefa do LED
+void vBuzzerTask(void *pvParameters);                                                      // Tarefa do buzzer
 static err_t tcp_server_accept(void *arg, struct tcp_pcb *newpcb, err_t err);             // Função de callback ao aceitar conexões TCP
 static err_t tcp_server_recv(void *arg, struct tcp_pcb *tpcb, struct pbuf *p, err_t err); // Função de callback para processar requisições HTTP
 void user_request(char **request);                                                        // Tratamento do request do usuário
@@ -58,6 +59,7 @@ static volatile int8_t current_parking_lot = 0;               // Vaga de estacio
 TaskHandle_t xDisplayTaskHandle = NULL;
 TaskHandle_t xLedRGBTaskHandle = NULL;
 TaskHandle_t xLedMatrixTaskHandle = NULL;
+TaskHandle_t xBuzzerTaskHandle = NULL;
 
 int main()
 {
@@ -76,6 +78,8 @@ int main()
                 NULL, tskIDLE_PRIORITY + 1, &xDisplayTaskHandle);
     xTaskCreate(vLedRGBTask, "LedRGBTask", configMINIMAL_STACK_SIZE,
                 NULL, tskIDLE_PRIORITY, &xLedRGBTaskHandle);
+    xTaskCreate(vBuzzerTask, "BuzzerTask", configMINIMAL_STACK_SIZE,
+                NULL, tskIDLE_PRIORITY, &xBuzzerTaskHandle);
 
     xTaskNotifyGive(xLedMatrixTaskHandle); // Notifica a tarefa da matriz de LEDs
     xTaskNotifyGive(xDisplayTaskHandle);   // Notifica a tarefa do display
@@ -464,6 +468,45 @@ void vLedRGBTask(void *pvParameters) {
     }
 }
 
+// Tarefa do buzzer
+void vBuzzerTask(void *pvParameters) {
+    // Inicializa o buzzer
+    init_buzzer(BUZZER_A_PIN, 4.0);
+
+    int parking_lot_status[PARKING_LOT_SIZE] = {0};
+
+    while (1) {
+        // Espera por uma notificação
+        ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
+
+        // Verifica qual foi a mudança de status
+        for (int i = 0; i < PARKING_LOT_SIZE; i++) {
+            if (parking_lots[i].status != parking_lot_status[i]) {
+                parking_lot_status[i] = parking_lots[i].status;
+
+                // Toca o buzzer se a vaga estiver ocupada
+                if (parking_lots[i].status == 1) {
+                    play_tone(BUZZER_A_PIN, 300);
+                    vTaskDelay(pdMS_TO_TICKS(250));
+                    stop_tone(BUZZER_A_PIN);
+                }
+                // Toca o buzzer se a vaga estiver livre
+                else if (parking_lots[i].status == 0) {
+                    play_tone(BUZZER_A_PIN, 2000);
+                    vTaskDelay(pdMS_TO_TICKS(250));
+                    stop_tone(BUZZER_A_PIN);
+                }
+                // Toca o buzzer se a vaga estiver reservada
+                else if (parking_lots[i].status == 2) {
+                    play_tone(BUZZER_A_PIN, 900);
+                    vTaskDelay(pdMS_TO_TICKS(250));
+                    stop_tone(BUZZER_A_PIN);
+                }
+            }
+        }
+    }
+}
+
 // Verifica se há notificações pendentes
 void notify_output_tasks() {
     if (xDisplayTaskHandle != NULL) {
@@ -476,5 +519,9 @@ void notify_output_tasks() {
 
     if (xLedRGBTaskHandle != NULL) {
         xTaskNotifyGive(xLedRGBTaskHandle);
+    }
+
+    if (xBuzzerTaskHandle != NULL) {
+        xTaskNotifyGive(xBuzzerTaskHandle);
     }
 }
