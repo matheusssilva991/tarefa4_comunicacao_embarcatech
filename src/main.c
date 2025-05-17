@@ -46,12 +46,12 @@ void vInputControlTask(void *pvParameters);                                     
 void vLedMatrixTask(void *pvParameters);                                                  // Tarefa da matriz de LEDs
 void vReservationTimeoutTask(void *pvParameters);                                         // Tarefa de reserva
 void vDisplayTask(void *pvParameters);                                                    // Tarefa do display
-void vLedRGBTask(void *pvParameters);                                                        // Tarefa do LED
-void vBuzzerTask(void *pvParameters);                                                      // Tarefa do buzzer
+void vLedRGBTask(void *pvParameters);                                                     // Tarefa do LED
+void vBuzzerTask(void *pvParameters);                                                     // Tarefa do buzzer
 static err_t tcp_server_accept(void *arg, struct tcp_pcb *newpcb, err_t err);             // Função de callback ao aceitar conexões TCP
 static err_t tcp_server_recv(void *arg, struct tcp_pcb *tpcb, struct pbuf *p, err_t err); // Função de callback para processar requisições HTTP
 void user_request(char **request);                                                        // Tratamento do request do usuário
-void notify_output_tasks(); // Verifica se há notificações pendentes
+void notify_output_tasks();                                                               // Verifica se há notificações pendentes
 
 static volatile parking_lot_t parking_lots[PARKING_LOT_SIZE]; // Array de estruturas para armazenar o status do estacionamento
 static volatile int8_t current_parking_lot = 0;               // Vaga de estacionamento atual
@@ -186,7 +186,7 @@ void user_request(char **request)
             parking_lots[i].reservation_start_time = current_time; // Hora de início da reserva
 
             notify_output_tasks(); // Notifica as tarefas de saída
-            break; // Sai do loop após encontrar a vaga correspondente
+            break;                 // Sai do loop após encontrar a vaga correspondente
         }
     }
 }
@@ -314,7 +314,6 @@ void vInputControlTask(void *pvParameters)
 
             if (current_parking_lot < PARKING_LOT_SIZE - 1)
                 current_parking_lot++;
-
         }
         else if (btn_is_pressed(BTN_SW_PIN) && (now - last_sw) > debounce)
         {
@@ -439,19 +438,22 @@ void vDisplayTask(void *pvParameters)
 }
 
 // Tarefa do LED
-void vLedRGBTask(void *pvParameters) {
+void vLedRGBTask(void *pvParameters)
+{
     init_leds(); // Inicializa os LEDs
 
     int free_parking_lots;
 
-    while (1) {
+    while (1)
+    {
         // Espera por uma notificação
         ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
 
         free_parking_lots = 0;
 
         // Verifica a quantidade de vagas livres
-        for (int i = 0; i < PARKING_LOT_SIZE; i++) {
+        for (int i = 0; i < PARKING_LOT_SIZE; i++)
+        {
             if (parking_lots[i].status == 0)
                 free_parking_lots++;
         }
@@ -459,9 +461,11 @@ void vLedRGBTask(void *pvParameters) {
         // Acende uma cor no LED RGB de acordo com a quantidade de vagas livres
         if (free_parking_lots == 0)
             set_led_red();
-        else if (free_parking_lots > PARKING_LOT_SIZE / 2) {
+        else if (free_parking_lots > PARKING_LOT_SIZE / 2)
+        {
             set_led_green();
-        } else
+        }
+        else
             set_led_yellow();
 
         vTaskDelay(pdMS_TO_TICKS(100));
@@ -469,35 +473,42 @@ void vLedRGBTask(void *pvParameters) {
 }
 
 // Tarefa do buzzer
-void vBuzzerTask(void *pvParameters) {
+void vBuzzerTask(void *pvParameters)
+{
     // Inicializa o buzzer
     init_buzzer(BUZZER_A_PIN, 4.0);
 
     int parking_lot_status[PARKING_LOT_SIZE] = {0};
 
-    while (1) {
+    while (1)
+    {
         // Espera por uma notificação
         ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
 
         // Verifica qual foi a mudança de status
-        for (int i = 0; i < PARKING_LOT_SIZE; i++) {
-            if (parking_lots[i].status != parking_lot_status[i]) {
+        for (int i = 0; i < PARKING_LOT_SIZE; i++)
+        {
+            if (parking_lots[i].status != parking_lot_status[i])
+            {
                 parking_lot_status[i] = parking_lots[i].status;
 
                 // Toca o buzzer se a vaga estiver ocupada
-                if (parking_lots[i].status == 1) {
+                if (parking_lots[i].status == 1)
+                {
                     play_tone(BUZZER_A_PIN, 300);
                     vTaskDelay(pdMS_TO_TICKS(250));
                     stop_tone(BUZZER_A_PIN);
                 }
                 // Toca o buzzer se a vaga estiver livre
-                else if (parking_lots[i].status == 0) {
+                else if (parking_lots[i].status == 0)
+                {
                     play_tone(BUZZER_A_PIN, 2000);
                     vTaskDelay(pdMS_TO_TICKS(250));
                     stop_tone(BUZZER_A_PIN);
                 }
                 // Toca o buzzer se a vaga estiver reservada
-                else if (parking_lots[i].status == 2) {
+                else if (parking_lots[i].status == 2)
+                {
                     play_tone(BUZZER_A_PIN, 900);
                     vTaskDelay(pdMS_TO_TICKS(250));
                     stop_tone(BUZZER_A_PIN);
@@ -508,20 +519,25 @@ void vBuzzerTask(void *pvParameters) {
 }
 
 // Verifica se há notificações pendentes
-void notify_output_tasks() {
-    if (xDisplayTaskHandle != NULL) {
+void notify_output_tasks()
+{
+    if (xDisplayTaskHandle != NULL)
+    {
         xTaskNotifyGive(xDisplayTaskHandle);
     }
 
-    if (xLedMatrixTaskHandle != NULL) {
+    if (xLedMatrixTaskHandle != NULL)
+    {
         xTaskNotifyGive(xLedMatrixTaskHandle);
     }
 
-    if (xLedRGBTaskHandle != NULL) {
+    if (xLedRGBTaskHandle != NULL)
+    {
         xTaskNotifyGive(xLedRGBTaskHandle);
     }
 
-    if (xBuzzerTaskHandle != NULL) {
+    if (xBuzzerTaskHandle != NULL)
+    {
         xTaskNotifyGive(xBuzzerTaskHandle);
     }
 }
